@@ -237,17 +237,35 @@ class LLMClient:
                                         token_ids = chunk['choices'][0].get('token_ids')
                                         if token_ids and isinstance(token_ids, list):
                                             result.total_tokens += len(token_ids)
-                                            result.token_timestamps.extend([chunk_time] * len(token_ids))
+                                            if len(token_ids) == 1:
+                                                result.token_timestamps.append(chunk_time)
+                                            else:
+                                                last_ts = result.token_timestamps[-1] if result.token_timestamps else result.first_token_ts
+                                                if last_ts is None:
+                                                    last_ts = result.start_ts
+                                                time_window = chunk_time - last_ts
+                                                for i in range(len(token_ids)):
+                                                    ts = last_ts + (time_window * (i + 1) / len(token_ids))
+                                                    result.token_timestamps.append(ts)
                                         elif tokenizer is not None:
                                             global _warned_about_fallback
                                             if not _warned_about_fallback:
-                                                print("  No token_ids in response, using local tokenization")
+                                                print("⚠️  No token_ids in response, using local tokenization")
                                                 _warned_about_fallback = True
                                             
                                             full_content = content or reasoning_content or reasoning
                                             token_count = len(tokenizer.encode(full_content, add_special_tokens=False))
                                             result.total_tokens += token_count
-                                            result.token_timestamps.extend([chunk_time] * token_count)
+                                            if token_count == 1:
+                                                result.token_timestamps.append(chunk_time)
+                                            else:
+                                                last_ts = result.token_timestamps[-1] if result.token_timestamps else result.first_token_ts
+                                                if last_ts is None:
+                                                    last_ts = result.start_ts
+                                                time_window = chunk_time - last_ts
+                                                for i in range(token_count):
+                                                    ts = last_ts + (time_window * (i + 1) / token_count)
+                                                    result.token_timestamps.append(ts)
                                         else:
                                             if not _warned_about_fallback:
                                                 print("  No token_ids or tokenizer, assuming 1 token per chunk")
