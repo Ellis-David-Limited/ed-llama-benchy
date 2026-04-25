@@ -80,6 +80,11 @@ def count_tokens(text: str, model_name: str) -> int:
     tokenizer = get_tokenizer(model_name)
     return len(tokenizer.encode(text, add_special_tokens=False))
 
+def get_token_ids(text: str, model_name: str) -> List[int]:
+    """Get token IDs for the given text."""
+    tokenizer = get_tokenizer(model_name)
+    return tokenizer.encode(text, add_special_tokens=False)
+
 @app.get("/models")
 @app.get("/v1/models")
 async def list_models():
@@ -177,6 +182,10 @@ async def chat_completions(request: ChatCompletionRequest):
             # Generate tokens
             stream_start_time = time.perf_counter()
             token_text = COHERENCE_TEST_RESPONSE + " " if is_coherence_test else "mock "
+            token_ids = get_token_ids(token_text, request.model)
+            
+            include_token_ids = request.return_token_ids if hasattr(request, 'return_token_ids') else False
+            
             for i in range(num_completion_tokens):
                 target_time = stream_start_time + ((i + 1) * token_interval)
                 now = time.perf_counter()
@@ -184,6 +193,7 @@ async def chat_completions(request: ChatCompletionRequest):
 
                 if sleep_duration > 0:
                     await asyncio.sleep(sleep_duration)
+                
                 chunk = {
                     "id": request_id,
                     "object": "chat.completion.chunk",
@@ -197,6 +207,10 @@ async def chat_completions(request: ChatCompletionRequest):
                         }
                     ]
                 }
+                
+                if include_token_ids:
+                    chunk["choices"][0]["token_ids"] = token_ids
+                
                 yield f"data: {json.dumps(chunk)}\n\n"
             
             # Final finish chunk

@@ -7,6 +7,8 @@ import numpy as np
 from dataclasses import dataclass, field
 from typing import Optional, List, Dict, Any
 
+_warned_about_fallback = False
+
 @dataclass
 class RequestResult:
     start_ts: float = 0.0
@@ -161,7 +163,8 @@ class LLMClient:
             context_text: str, 
             prompt_text: str, 
             max_tokens: int, 
-            no_cache: bool
+            no_cache: bool,
+            tokenizer=None
         ) -> RequestResult:
 
         messages = []
@@ -177,6 +180,7 @@ class LLMClient:
                 "messages": messages,
                 "max_tokens": max_tokens,
                 "stream": True,
+                "return_token_ids": True,
                 "stream_options": {"include_usage": True},
             }
             
@@ -230,8 +234,27 @@ class LLMClient:
                                         if result.first_token_ts is None:
                                             result.first_token_ts = chunk_time
                                         
-                                        result.total_tokens += 1
-                                        result.token_timestamps.append(chunk_time)
+                                        token_ids = chunk['choices'][0].get('token_ids')
+                                        if token_ids and isinstance(token_ids, list):
+                                            result.total_tokens += len(token_ids)
+                                            result.token_timestamps.extend([chunk_time] * len(token_ids))
+                                        elif tokenizer is not None:
+                                            global _warned_about_fallback
+                                            if not _warned_about_fallback:
+                                                print("  No token_ids in response, using local tokenization")
+                                                _warned_about_fallback = True
+                                            
+                                            full_content = content or reasoning_content or reasoning
+                                            token_count = len(tokenizer.encode(full_content, add_special_tokens=False))
+                                            result.total_tokens += token_count
+                                            result.token_timestamps.extend([chunk_time] * token_count)
+                                        else:
+                                            if not _warned_about_fallback:
+                                                print("  No token_ids or tokenizer, assuming 1 token per chunk")
+                                                _warned_about_fallback = True
+                                            
+                                            result.total_tokens += 1
+                                            result.token_timestamps.append(chunk_time)
                             except json.JSONDecodeError:
                                 continue
             
