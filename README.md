@@ -25,6 +25,7 @@ As of January 2nd, 2026, I wasn't able to find any existing benchmarking tool th
 - Supports configurable prompt length (`--pp`), generation length (`--tg`), and context depth (`--depth`).
 - Can run multiple iterations (`--runs`) and report mean ± std.
 - Uses HuggingFace tokenizers for accurate token counts.
+- Correctly handles multi-token prediction (MTP) chunks.
 - Downloads a book from Project Gutenberg to use as source text for prompts to ensure better benchmarking of spec.decoding/MTP models.
 - Supports executing a command after each run (e.g., to clear cache).
 - Configurable latency measurement mode.
@@ -32,6 +33,7 @@ As of January 2nd, 2026, I wasn't able to find any existing benchmarking tool th
 - Can save results to file in Markdown, JSON, or CSV format.
 - Can save granular time-series data for token generation when JSON output is used (`--save-total-throughput-timeseries` and `--save-all-throughput-timeseries`).
 - Runs a coherence test after warmup to verify model responds correctly (default, can be skipped with `--skip-coherence`).
+- Auto-detects HuggingFace model name from the endpoint's `/models` endpoint when `--model` is not specified.
 
 # Current Limitations
 
@@ -155,9 +157,9 @@ Generally you don't need to disable prompt caching on the server, as a probabili
 
 -   `--base-url`: OpenAI compatible endpoint URL (Required).
 -   `--api-key`: API Key (Default: "EMPTY").
--   `--model`: Model name (Required).
--   `--served-model-name`: Model name used in API calls (Defaults to --model if not specified).
--   `--tokenizer`: HuggingFace tokenizer name (Defaults to model name).
+-   `--model`: Model name to use for benchmarking. If not specified, attempts to auto-detect from the endpoint's `/models` endpoint.
+-   `--served-model-name`: Model name used in API calls (Defaults to --model if not specified). Tries to autodetect from the endpoint's `/models` endpoint (if supported, e.g. vLLM).
+-   `--tokenizer`: HuggingFace tokenizer name or local path (Defaults to model name).
 -   `--pp`: List of prompt processing token counts (Default: [2048]).
 -   `--tg`: List of token generation counts (Default: [32]).
 -   `--depth`: List of context depths (Default: [0]).

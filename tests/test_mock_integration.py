@@ -146,3 +146,59 @@ async def test_benchy_integration(mock_server_url):
     assert cached_speed > 2500, f"Cached speed {cached_speed} is not significantly boosted (>2500)"
     assert cached_speed < 3500, f"Cached speed {cached_speed} seems too high (>3500)"
 
+
+@pytest.mark.asyncio
+async def test_mtp_integration(mock_server_url):
+    """
+    Verifies MTP (multi-token prediction) chunk handling:
+    The mock server sends 3 token_ids per chunk at the same chunk rate (50 chunks/s).
+    The client should spread timestamps and report ~150 t/s (3 × 50).
+    """
+    MTP_FACTOR = 3
+    BASE_TPS = 50.0
+    expected_tps = MTP_FACTOR * BASE_TPS
+
+    cmd = [
+        sys.executable, "-m", "llama_benchy",
+        "--base-url", mock_server_url,
+        "--model", f"test-model-mtp{MTP_FACTOR}",
+        "--depth", "0",
+        "--format", "json"
+    ]
+
+    result = subprocess.run(cmd, capture_output=True, text=True)
+
+    if result.returncode != 0:
+        print("STDOUT:", result.stdout)
+        print("STDERR:", result.stderr)
+        pytest.fail("llama-benchy command failed")
+
+    stdout = result.stdout
+    json_start = stdout.find('{')
+    if json_start == -1:
+        json_start = stdout.find('[')
+    if json_start == -1:
+        print("Output:\n", stdout)
+        pytest.fail("Could not find JSON output")
+
+    json_end = stdout.rfind('}') + 1 if stdout[json_start] == '{' else stdout.rfind(']') + 1
+    data = json.loads(stdout[json_start:json_end])
+
+    if isinstance(data, dict) and "benchmarks" in data:
+        benchmarks = data["benchmarks"]
+    elif isinstance(data, list):
+        benchmarks = data
+    else:
+        benchmarks = [data]
+
+    baseline = next((b for b in benchmarks if b.get("context_size") == 0), None)
+    assert baseline, "Missing baseline result (depth 0)"
+
+    gen_speed = baseline["tg_throughput"]["mean"]
+    print(f"MTP Generation Speed: {gen_speed} t/s (expected ~{expected_tps})")
+
+    tolerance = 0.20
+    assert expected_tps * (1 - tolerance) < gen_speed < expected_tps * (1 + tolerance), (
+        f"MTP generation speed {gen_speed:.1f} t/s not within {tolerance*100:.0f}% of expected {expected_tps} t/s"
+    )
+

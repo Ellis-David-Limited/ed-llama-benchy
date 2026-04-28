@@ -7,6 +7,8 @@ import numpy as np
 from dataclasses import dataclass, field
 from typing import Optional, List, Dict, Any
 
+_warned_about_fallback = False
+
 @dataclass
 class RequestResult:
     start_ts: float = 0.0
@@ -161,7 +163,8 @@ class LLMClient:
             context_text: str, 
             prompt_text: str, 
             max_tokens: int, 
-            no_cache: bool
+            no_cache: bool,
+            tokenizer=None
         ) -> RequestResult:
 
         messages = []
@@ -177,6 +180,7 @@ class LLMClient:
                 "messages": messages,
                 "max_tokens": max_tokens,
                 "stream": True,
+                "return_token_ids": True,
                 "stream_options": {"include_usage": True},
             }
             
@@ -195,7 +199,7 @@ class LLMClient:
                 decoder = codecs.getincrementaldecoder("utf-8")(errors='replace')
                 buffer = ""
                 
-                async for chunk_bytes in response.content:
+                async for chunk_bytes in response.content.iter_any():
                     chunk_time = time.perf_counter()
                     decoded_chunk = decoder.decode(chunk_bytes, final=False)
                     buffer += decoded_chunk
@@ -230,8 +234,45 @@ class LLMClient:
                                         if result.first_token_ts is None:
                                             result.first_token_ts = chunk_time
                                         
-                                        result.total_tokens += 1
-                                        result.token_timestamps.append(chunk_time)
+                                        token_ids = chunk['choices'][0].get('token_ids')
+                                        if token_ids and isinstance(token_ids, list):
+                                            result.total_tokens += len(token_ids)
+                                            if len(token_ids) == 1:
+                                                result.token_timestamps.append(chunk_time)
+                                            else:
+                                                last_ts = result.token_timestamps[-1] if result.token_timestamps else result.first_token_ts
+                                                if last_ts is None:
+                                                    last_ts = result.start_ts
+                                                time_window = chunk_time - last_ts
+                                                for i in range(len(token_ids)):
+                                                    ts = last_ts + (time_window * (i + 1) / len(token_ids))
+                                                    result.token_timestamps.append(ts)
+                                        elif tokenizer is not None:
+                                            global _warned_about_fallback
+                                            if not _warned_about_fallback:
+                                                print("  No token_ids in response, using local tokenization")
+                                                _warned_about_fallback = True
+                                            
+                                            full_content = content or reasoning_content or reasoning
+                                            token_count = len(tokenizer.encode(full_content, add_special_tokens=False))
+                                            result.total_tokens += token_count
+                                            if token_count == 1:
+                                                result.token_timestamps.append(chunk_time)
+                                            else:
+                                                last_ts = result.token_timestamps[-1] if result.token_timestamps else result.first_token_ts
+                                                if last_ts is None:
+                                                    last_ts = result.start_ts
+                                                time_window = chunk_time - last_ts
+                                                for i in range(token_count):
+                                                    ts = last_ts + (time_window * (i + 1) / token_count)
+                                                    result.token_timestamps.append(ts)
+                                        else:
+                                            if not _warned_about_fallback:
+                                                print("  No token_ids or tokenizer, assuming 1 token per chunk")
+                                                _warned_about_fallback = True
+                                            
+                                            result.total_tokens += 1
+                                            result.token_timestamps.append(chunk_time)
                             except json.JSONDecodeError:
                                 continue
             

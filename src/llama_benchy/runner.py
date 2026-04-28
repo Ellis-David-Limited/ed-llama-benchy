@@ -40,8 +40,9 @@ class BenchmarkRunner:
                 if self.config.adapt_prompt:
                     should_warmup = True
 
+                tokenizer = self.prompt_gen.corpus.get_tokenizer()
+
                 if should_warmup:
-                    tokenizer = self.prompt_gen.corpus.get_tokenizer() if self.config.adapt_prompt else None
                     self.delta_user, self.delta_context = await self.client.warmup(session, tokenizer)
 
                 # Coherence test after warmup (by default, unless skipped)
@@ -99,7 +100,8 @@ class BenchmarkRunner:
                                                 context_text=context,
                                                 prompt_text="",
                                                 max_tokens=tg,
-                                                no_cache=self.config.no_cache
+                                                no_cache=self.config.no_cache,
+                                                tokenizer=tokenizer
                                             ))
 
                                         load_results = await asyncio.gather(*load_tasks)
@@ -120,7 +122,8 @@ class BenchmarkRunner:
                                                 context_text=context,
                                                 prompt_text=prompt,
                                                 max_tokens=tg,
-                                                no_cache=self.config.no_cache
+                                                no_cache=self.config.no_cache,
+                                                tokenizer=tokenizer
                                             ))
 
                                         batch_results = await asyncio.gather(*inf_tasks)
@@ -143,7 +146,8 @@ class BenchmarkRunner:
                                                 context_text=context,
                                                 prompt_text=prompt,
                                                 max_tokens=tg,
-                                                no_cache=self.config.no_cache
+                                                no_cache=self.config.no_cache,
+                                                tokenizer=tokenizer
                                             ))
 
                                         batch_results = await asyncio.gather(*batch_tasks)

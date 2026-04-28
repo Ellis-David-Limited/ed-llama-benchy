@@ -71,6 +71,7 @@ class ChatCompletionRequest(BaseModel):
     temperature: Optional[float] = 1.0
     top_p: Optional[float] = 1.0
     n: Optional[int] = 1
+    return_token_ids: Optional[bool] = False
 
 def count_tokens(text: str, model_name: str) -> int:
     """Count tokens using the appropriate tokenizer."""
@@ -79,6 +80,17 @@ def count_tokens(text: str, model_name: str) -> int:
     
     tokenizer = get_tokenizer(model_name)
     return len(tokenizer.encode(text, add_special_tokens=False))
+
+def get_token_ids(text: str, model_name: str) -> List[int]:
+    """Get token IDs for the given text."""
+    tokenizer = get_tokenizer(model_name)
+    return tokenizer.encode(text, add_special_tokens=False)
+
+def get_mtp_factor(model_name: str) -> int:
+    """Extract MTP factor from model name, e.g. 'test-model-mtp3' -> 3."""
+    import re
+    match = re.search(r'mtp(\d+)', model_name)
+    return int(match.group(1)) if match else 1
 
 @app.get("/models")
 @app.get("/v1/models")
@@ -177,6 +189,12 @@ async def chat_completions(request: ChatCompletionRequest):
             # Generate tokens
             stream_start_time = time.perf_counter()
             token_text = COHERENCE_TEST_RESPONSE + " " if is_coherence_test else "mock "
+            all_token_ids = get_token_ids(token_text, request.model)
+            single_token_id = all_token_ids[0] if all_token_ids else 0
+            mtp_factor = get_mtp_factor(request.model)
+
+            include_token_ids = request.return_token_ids if hasattr(request, 'return_token_ids') else False
+
             for i in range(num_completion_tokens):
                 target_time = stream_start_time + ((i + 1) * token_interval)
                 now = time.perf_counter()
@@ -184,6 +202,7 @@ async def chat_completions(request: ChatCompletionRequest):
 
                 if sleep_duration > 0:
                     await asyncio.sleep(sleep_duration)
+                
                 chunk = {
                     "id": request_id,
                     "object": "chat.completion.chunk",
@@ -197,6 +216,10 @@ async def chat_completions(request: ChatCompletionRequest):
                         }
                     ]
                 }
+                
+                if include_token_ids:
+                    chunk["choices"][0]["token_ids"] = [single_token_id] * mtp_factor
+                
                 yield f"data: {json.dumps(chunk)}\n\n"
             
             # Final finish chunk
