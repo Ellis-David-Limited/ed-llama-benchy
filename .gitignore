@@ -79,3 +79,6 @@ examples/*.json
 
 # Local tokenizer cache
 .tokenizers/
+
+# Benchmark run logs
+*.log
