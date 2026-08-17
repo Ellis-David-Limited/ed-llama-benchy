@@ -1,6 +1,7 @@
 from pydantic import BaseModel, Field
-from typing import List, Optional, Tuple
+from typing import Any, Dict, List, Optional, Tuple
 import argparse
+import json
 import os
 import re
 import requests
@@ -24,10 +25,18 @@ class BenchmarkConfig(BaseModel):
         ..., description="List of prompt processing token counts"
     )
     tg_counts: List[int] = Field(..., description="List of token generation counts")
+    exact_tg: bool = Field(
+        False,
+        description="Force generated output length to match --tg using server-specific min_tokens and ignore_eos fields",
+    )
     depths: List[int] = Field(
         ..., description="List of context depths (previous conversation tokens)"
     )
     num_runs: int = Field(..., description="Number of runs per test")
+    warmup_runs: int = Field(
+        1,
+        description="Number of discarded warmup runs per test shape; also used for generation latency probes",
+    )
     no_cache: bool = Field(
         ..., description="Ensure unique requests to avoid prefix caching"
     )
@@ -65,6 +74,44 @@ class BenchmarkConfig(BaseModel):
         False,
         description="Prevent saving/printing results when error is experienced, turns on --exit-on-first-fail as well",
     )
+    extra_body: Dict[str, Any] = Field(
+        default_factory=dict,
+        description="Extra JSON fields to merge into benchmark chat completion requests",
+    )
+    emit_progress: Optional[str] = Field(
+        None,
+        description="Emit progress events as JSONL to PATH (or '-' for stdout). See docs/progress-schema.md.",
+    )
+
+    @staticmethod
+    def _parse_extra_body(values: Optional[List[str]]) -> Dict[str, Any]:
+        extra: Dict[str, Any] = {}
+        if not values:
+            return extra
+
+        for item in values:
+            entries = [entry.strip() for entry in item.split(",") if entry.strip()]
+            for entry in entries:
+                if "=" in entry:
+                    key, raw_value = entry.split("=", 1)
+                elif ":" in entry:
+                    key, raw_value = entry.split(":", 1)
+                else:
+                    raise ValueError(
+                        f"Invalid --extra-body entry '{entry}'. Use key=value or key:value."
+                    )
+
+                key = key.strip()
+                raw_value = raw_value.strip()
+                if not key:
+                    raise ValueError(f"Invalid --extra-body entry '{entry}': empty key.")
+
+                try:
+                    extra[key] = json.loads(raw_value)
+                except json.JSONDecodeError:
+                    extra[key] = raw_value
+
+        return extra
 
     @staticmethod
     def _detect_hf_model_from_endpoint(base_url: str, api_key: str) -> Tuple[str, str]:
@@ -211,6 +258,11 @@ class BenchmarkConfig(BaseModel):
             help="List of token generation counts - default: 32",
         )
         parser.add_argument(
+            "--exact-tg",
+            action="store_true",
+            help="Force output length to match --tg by sending min_tokens=<tg> and ignore_eos=true in benchmark requests.",
+        )
+        parser.add_argument(
             "--depth",
             type=int,
             nargs="+",
@@ -219,6 +271,16 @@ class BenchmarkConfig(BaseModel):
         )
         parser.add_argument(
             "--runs", type=int, default=3, help="Number of runs per test - default: 3"
+        )
+        parser.add_argument(
+            "--warmup-runs",
+            type=int,
+            default=1,
+            help=(
+                "Number of discarded warmup runs per test shape - default: 1. "
+                "Also controls discarded probes for --latency-mode generation. "
+                "Does not affect the initial prompt-adaptation warmup."
+            ),
         )
         parser.add_argument(
             "--no-cache",
@@ -304,11 +366,36 @@ class BenchmarkConfig(BaseModel):
             action="store_true",
             help="Prevent saving/printing results when error is experienced, turns on --exit-on-first-fail as well",
         )
+        parser.add_argument(
+            "--extra-body",
+            action="append",
+            default=[],
+            help="Extra JSON fields to merge into benchmark chat completion requests. Accepts key=value or key:value, comma-separated or repeated.",
+        )
+        parser.add_argument(
+            "--emit-progress",
+            type=str,
+            default=None,
+            metavar="PATH",
+            help=(
+                "Emit benchmark progress events as JSONL to PATH (or '-' for stdout). "
+                "External visualizers (live TUIs, web dashboards, post-hoc charts) "
+                "consume this stream. Schema: docs/progress-schema.md."
+            ),
+        )
 
         args = parser.parse_args()
 
         if args.no_results_on_fail:
             args.exit_on_first_fail = True
+        if args.warmup_runs < 0:
+            parser.error("--warmup-runs must be >= 0")
+
+        try:
+            extra_body = BenchmarkConfig._parse_extra_body(args.extra_body)
+        except ValueError as e:
+            print(f"Error: {e}")
+            sys.exit(1)
 
         # Auto-detect model if not specified
         if args.model is None:
@@ -341,8 +428,10 @@ class BenchmarkConfig(BaseModel):
             tokenizer=args.tokenizer,
             pp_counts=args.pp,
             tg_counts=args.tg,
+            exact_tg=args.exact_tg,
             depths=args.depth,
             num_runs=args.runs,
+            warmup_runs=args.warmup_runs,
             no_cache=args.no_cache,
             latency_mode=args.latency_mode,
             no_warmup=args.no_warmup,
@@ -358,4 +447,6 @@ class BenchmarkConfig(BaseModel):
             save_all_throughput_timeseries=args.save_all_throughput_timeseries,
             exit_on_first_fail=args.exit_on_first_fail,
             no_results_on_fail=args.no_results_on_fail,
+            extra_body=extra_body,
+            emit_progress=args.emit_progress,
         )

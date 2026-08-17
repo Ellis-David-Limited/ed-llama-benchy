@@ -162,8 +162,10 @@ Generally you don't need to disable prompt caching on the server, as a probabili
 -   `--tokenizer`: HuggingFace tokenizer name or local path (Defaults to model name).
 -   `--pp`: List of prompt processing token counts (Default: [2048]).
 -   `--tg`: List of token generation counts (Default: [32]).
+-   `--exact-tg`: Force output length to match `--tg` by sending `min_tokens=<tg>` and `ignore_eos=true` in benchmark requests. This is useful for fixed-OSL throughput runs on compatible servers such as vLLM.
 -   `--depth`: List of context depths (Default: [0]).
 -   `--runs`: Number of runs per test (Default: 3).
+-   `--warmup-runs`: Number of discarded warmup runs per test shape (Default: 1). For concurrency `N`, each warmup run sends `N` requests. Also controls the number of discarded warmup probes for `--latency-mode generation`; it does not affect the initial prompt-adaptation warmup.
 -   `--no-cache`: Add noise to requests to improve prefix caching avoidance. Also sends `cache-prompt=false` to the server.
 -   `--post-run-cmd`: Command to execute after each test run.
 -   `--book-url`: URL of a book to use for text generation (Defaults to Sherlock Holmes).
@@ -180,6 +182,18 @@ Generally you don't need to disable prompt caching on the server, as a probabili
 -   `--save-all-throughput-timeseries`: Save calculated throughput timeseries for EACH individual request (default: off).
 -   `--exit-on-first-fail`: Stop execution on first failed test and exit with non-zero status.
 -   `--no-results-on-fail`: Prevent saving/printing any results when error is experienced, turns on --exit-on-first-fail as well.
+-   `--extra-body`: Extra JSON fields to merge into benchmark chat completion requests. Accepts repeated or comma-separated `key=value` / `key:value` entries, e.g. `--extra-body min_tokens=1024,ignore_eos=true`.
+
+For fixed-output-length throughput benchmarks, prefer `--exact-tg` over manually passing `min_tokens` and `ignore_eos`:
+
+```bash
+llama-benchy \
+  --base-url http://localhost:8000/v1 \
+  --model my-model \
+  --pp 2160 \
+  --tg 1024 \
+  --exact-tg
+```
 
 ### Metrics
 
@@ -190,7 +204,7 @@ The script outputs a table with the following metrics. All time measurements are
 The script attempts to estimate network or processing latency to provide "server-side" processing times.
 - **Latency**: Measured based on `--latency-mode`.
   - `api`: Time to fetch `/models` (from sending request to getting first byte of the response). Eliminates network latency only.
-  - `generation`: Time to generate 1 token (from sending request to getting first byte of the response). Tries to eliminate network and server overhead latency.
+  - `generation`: Time to generate 1 token (from sending request to getting first byte of the response). Tries to eliminate network and server overhead latency. By default this sends 4 single-token streaming probes, discards the first as a request-shape warmup, and averages the remaining 3. `--warmup-runs` controls the number of discarded generation-latency probes.
   - `none`: Assumed to be 0.
 - This measured latency is subtracted from `ttfr` to calculate `est_ppt`.
 
@@ -198,7 +212,7 @@ The script attempts to estimate network or processing latency to provide "server
 
 -   **`t/s` (Tokens per Second)**:
     -   **For Prompt Processing (pp)**: Calculated as `Total Prompt Tokens / est_ppt`. This represents the prefill speed.
-    -   **For Token Generation (tg)**: Calculated as `(Total Generated Tokens - 1) / (Time of Last Token - Time of First Token)`. This represents the decode speed, excluding the first token latency.
+    -   **For Token Generation (tg)**: Calculated as `Tokens observed after the first token timestamp / (Time of Last Token - Time of First Token)`. This represents decode speed over the observable post-first-token interval. For block-streaming backends, all tokens that arrive with the first content timestamp are excluded because they have no observable generation interval. If the backend emits the whole response in a single content-bearing stream chunk, decode throughput is left blank instead of reporting a protocol-timing artifact.
         -   When `concurrency` > 1:
         -   **`t/s (total)`**: Total throughput across all concurrent requests.
         -   **`t/s (req)`**: Average throughput per individual request.
@@ -222,7 +236,7 @@ The script attempts to estimate network or processing latency to provide "server
 
 When `--enable-prefix-caching` is used (with `--depth` > 0), the script performs a two-step process for each run to measure the impact of prefix caching:
 
-1.  **Context Load**: Sends the context tokens (as a system message) with an empty user message. This forces the server to process and cache the context.
+1.  **Context Load**: Sends the context tokens (as a system message) with a minimal user probe message. This forces the server to process and cache the context while staying compatible with frontends that reject empty user messages.
     -   Reported as `ctx_pp @ d{depth}` (Context Prompt Processing) and `ctx_tg @ d{depth}`.
 2.  **Inference**: Sends the same context (system message) followed by the actual prompt (user message). The server should reuse the cached context.
     -   Reported as standard `pp{tokens} @ d{depth}` and `tg{tokens} @ d{depth}`.
@@ -337,6 +351,34 @@ JSON (`--format json`) will give you the most detailed data. If you specify `--s
 - [JSON schema](schemas/benchmark_report_schema.json)
 
 You can also instantiate llama-benchy classes and run analysis directly from Python. See [Jupyter Notebook example](examples/benchmark_visualization.ipynb).
+
+## Live progress stream (for external visualizers)
+
+`--emit-progress PATH` writes a stream of newline-delimited JSON events to
+`PATH` (or `-` for stdout) while the benchmark runs. External visualizers —
+live TUIs, web dashboards, post-hoc analyzers — consume that stream and
+render whatever they like.
+
+```bash
+# Emit to a file alongside the normal benchmark
+llama-benchy --base-url http://localhost:8000/v1 --model … \
+             --emit-progress /tmp/progress.jsonl
+
+# Pipe straight into a visualizer (status output goes to stderr in this mode)
+llama-benchy --base-url http://localhost:8000/v1 --model … \
+             --emit-progress - | my-visualizer
+```
+
+Default behavior is unchanged when `--emit-progress` is omitted. Schema
+spec: [`docs/progress-schema.md`](docs/progress-schema.md).
+
+When the server returns `token_ids`, per-chunk `tokens.count` values are
+exact. When token IDs are unavailable, `tokens` events are marked
+`estimated: true` and should be treated as live progress hints; use
+`request_end.total_tokens` as the authoritative generated-token total.
+
+Thanks to [@alexziskind1](https://github.com/alexziskind1) for contributing
+the progress stream functionality and reference visualizer integration.
 
 ## Development
 

@@ -8,7 +8,7 @@ import aiohttp
 
 from ._version import __version__
 from .config import BenchmarkConfig
-from .client import LLMClient
+from .client import CONTEXT_LOAD_USER_MESSAGE, LLMClient
 from .prompts import PromptGenerator
 from .results import BenchmarkResults, BenchmarkMetadata
 
@@ -16,15 +16,40 @@ class BenchmarkFailure(Exception):
     pass
 
 class BenchmarkRunner:
-    def __init__(self, config: BenchmarkConfig, client: LLMClient, prompt_generator: PromptGenerator):
+    def __init__(self, config: BenchmarkConfig, client: LLMClient, prompt_generator: PromptGenerator, progress=None):
         self.config = config
         self.client = client
         self.prompt_gen = prompt_generator
         self.results = BenchmarkResults()
+        self.progress = progress
+        self._next_request_id = 0
 
         # We need to track deltas from warmup to adapt prompts
         self.delta_user = 0
         self.delta_context = 0
+
+    def _new_request_id(self) -> int:
+        rid = self._next_request_id
+        self._next_request_id += 1
+        return rid
+
+    def _emit_request_start(self, request_id: int, pp: int, tg: int, depth: int, concurrency: int, run_index: int) -> None:
+        if self.progress is None:
+            return
+        try:
+            self.progress.request_start(
+                request_id=request_id,
+                model=self.config.model,
+                base_url=self.config.base_url,
+                prompt_size=pp,
+                response_size=tg,
+                context_size=depth,
+                concurrency=concurrency,
+                run_index=run_index,
+                target_label="",
+            )
+        except Exception:
+            pass
 
     async def run_suite(self):
         # Initialize session
@@ -54,7 +79,19 @@ class BenchmarkRunner:
                     print("\nSkipping coherence test (--skip-coherence specified)")
 
                 # Measure latency
-                latency = await self.client.measure_latency(session, self.config.latency_mode)
+                warmup_runs = 0 if self.config.no_warmup else self.config.warmup_runs
+                latency = await self.client.measure_latency(
+                    session,
+                    self.config.latency_mode,
+                    warmup_runs=warmup_runs,
+                )
+                if self.progress is not None:
+                    try:
+                        self.progress.latency_measured(
+                            latency_s=latency, mode=self.config.latency_mode
+                        )
+                    except Exception:
+                        pass
 
                 # Main Loop
                 for depth in self.config.depths:
@@ -68,7 +105,15 @@ class BenchmarkRunner:
                                 expected_pp = pp
                                 expected_ctx = depth
 
-                                for run in range(self.config.num_runs):
+                                total_runs = self.config.num_runs + warmup_runs
+                                for run in range(total_runs):
+                                    is_warmup = run < warmup_runs
+                                    measured_run_index = run - warmup_runs
+                                    run_label = (
+                                        f"Warmup {run + 1}/{warmup_runs}"
+                                        if is_warmup
+                                        else f"Run {measured_run_index + 1}/{self.config.num_runs}"
+                                    )
 
                                     # Adapt prompt tokens
                                     current_pp = pp
@@ -91,21 +136,27 @@ class BenchmarkRunner:
 
                                     if self.config.enable_prefix_caching and depth > 0:
                                         # Phase 1: Context Load
-                                        print(f"  Run {run+1}/{self.config.num_runs} (Context Load, batch size {concurrency})...")
+                                        print(f"  {run_label} (Context Load, batch size {concurrency})...")
                                         load_tasks = []
                                         for i in range(concurrency):
                                             context, _ = prompt_batch[i]
+                                            if not is_warmup:
+                                                rid = self._new_request_id()
+                                                self._emit_request_start(rid, pp, tg, depth, concurrency, measured_run_index)
                                             load_tasks.append(self.client.run_generation(
                                                 session,
                                                 context_text=context,
-                                                prompt_text="",
+                                                prompt_text=CONTEXT_LOAD_USER_MESSAGE,
                                                 max_tokens=tg,
                                                 no_cache=self.config.no_cache,
-                                                tokenizer=tokenizer
+                                                tokenizer=tokenizer,
+                                                progress=None if is_warmup else self.progress,
+                                                request_id=None if is_warmup else rid,
                                             ))
 
                                         load_results = await asyncio.gather(*load_tasks)
-                                        run_ctx_results.append(load_results)
+                                        if not is_warmup:
+                                            run_ctx_results.append(load_results)
 
                                         if self.config.exit_on_first_fail and any(r.error for r in load_results):
                                             first_error = next(r.error for r in load_results if r.error)
@@ -113,21 +164,27 @@ class BenchmarkRunner:
                                             raise BenchmarkFailure()
 
                                         # Phase 2: Inference
-                                        print(f"  Run {run+1}/{self.config.num_runs} (Inference, batch size {concurrency})...")
+                                        print(f"  {run_label} (Inference, batch size {concurrency})...")
                                         inf_tasks = []
                                         for i in range(concurrency):
                                             context, prompt = prompt_batch[i]
+                                            if not is_warmup:
+                                                rid = self._new_request_id()
+                                                self._emit_request_start(rid, pp, tg, depth, concurrency, measured_run_index)
                                             inf_tasks.append(self.client.run_generation(
                                                 session,
                                                 context_text=context,
                                                 prompt_text=prompt,
                                                 max_tokens=tg,
                                                 no_cache=self.config.no_cache,
-                                                tokenizer=tokenizer
+                                                tokenizer=tokenizer,
+                                                progress=None if is_warmup else self.progress,
+                                                request_id=None if is_warmup else rid,
                                             ))
 
                                         batch_results = await asyncio.gather(*inf_tasks)
-                                        run_std_results.append(batch_results)
+                                        if not is_warmup:
+                                            run_std_results.append(batch_results)
 
                                         if self.config.exit_on_first_fail and any(r.error for r in batch_results):
                                             first_error = next(r.error for r in batch_results if r.error)
@@ -136,22 +193,28 @@ class BenchmarkRunner:
 
                                     else:
                                         # Standard Run
-                                        print(f"  Run {run+1}/{self.config.num_runs} (batch size {concurrency})...")
+                                        print(f"  {run_label} (batch size {concurrency})...")
                                         expected_tokens = current_pp + current_depth
                                         batch_tasks = []
                                         for i in range(concurrency):
                                             context, prompt = prompt_batch[i]
+                                            if not is_warmup:
+                                                rid = self._new_request_id()
+                                                self._emit_request_start(rid, pp, tg, depth, concurrency, measured_run_index)
                                             batch_tasks.append(self.client.run_generation(
                                                 session,
                                                 context_text=context,
                                                 prompt_text=prompt,
                                                 max_tokens=tg,
                                                 no_cache=self.config.no_cache,
-                                                tokenizer=tokenizer
+                                                tokenizer=tokenizer,
+                                                progress=None if is_warmup else self.progress,
+                                                request_id=None if is_warmup else rid,
                                             ))
 
                                         batch_results = await asyncio.gather(*batch_tasks)
-                                        run_std_results.append(batch_results)
+                                        if not is_warmup:
+                                            run_std_results.append(batch_results)
 
                                         if self.config.exit_on_first_fail and any(r.error for r in batch_results):
                                             first_error = next(r.error for r in batch_results if r.error)
