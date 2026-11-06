@@ -82,3 +82,4 @@ examples/*.json
 
 # Benchmark run logs
 *.log
+*.progress.jsonl
