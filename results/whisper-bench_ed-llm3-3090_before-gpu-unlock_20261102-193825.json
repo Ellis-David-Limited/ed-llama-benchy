@@ -1,0 +1,55 @@
+{
+  "label": "before-gpu-unlock",
+  "url": "http://ed-llm3.ellisdavid.net:8179/transcribe",
+  "clip_seconds": 305.53469387755104,
+  "runs": [
+    {
+      "kind": "warmup",
+      "seconds": 12.58,
+      "rtf_x": 24.3,
+      "chars": 1947,
+      "text_sha": "98ccf90691c5",
+      "speakers": 0
+    },
+    {
+      "kind": "plain",
+      "seconds": 5.91,
+      "rtf_x": 51.7,
+      "chars": 1947,
+      "text_sha": "98ccf90691c5",
+      "speakers": 0
+    },
+    {
+      "kind": "plain",
+      "seconds": 5.88,
+      "rtf_x": 52.0,
+      "chars": 1947,
+      "text_sha": "98ccf90691c5",
+      "speakers": 0
+    },
+    {
+      "kind": "plain",
+      "seconds": 5.94,
+      "rtf_x": 51.5,
+      "chars": 1947,
+      "text_sha": "98ccf90691c5",
+      "speakers": 0
+    },
+    {
+      "kind": "diarize",
+      "seconds": 9.67,
+      "rtf_x": 31.6,
+      "chars": 1947,
+      "text_sha": "98ccf90691c5",
+      "speakers": 0
+    },
+    {
+      "kind": "diarize",
+      "seconds": 9.71,
+      "rtf_x": 31.5,
+      "chars": 1947,
+      "text_sha": "98ccf90691c5",
+      "speakers": 0
+    }
+  ]
+}

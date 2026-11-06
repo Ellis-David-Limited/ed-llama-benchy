@@ -1,0 +1,101 @@
+{
+  "label": "before-gpu-unlock",
+  "model": "qwen3.6-35b-a3b-awq",
+  "results": [
+    {
+      "name": "arith",
+      "seconds": 0.52,
+      "finish_reason": "stop",
+      "usage": {
+        "prompt_tokens": 33,
+        "total_tokens": 87,
+        "completion_tokens": 54,
+        "prompt_tokens_details": {
+          "cached_tokens": 0,
+          "created_cache_tokens": 0,
+          "multimodal_tokens": null
+        },
+        "completion_tokens_details": {
+          "reasoning_tokens": 0
+        }
+      },
+      "content": "37 * 43 = (40 - 3) * (40 + 3) = 40^2 - 3^2 = 1600 - 9 = 1591\n\n1591"
+    },
+    {
+      "name": "summary",
+      "seconds": 1.34,
+      "finish_reason": "stop",
+      "usage": {
+        "prompt_tokens": 35,
+        "total_tokens": 225,
+        "completion_tokens": 190,
+        "prompt_tokens_details": {
+          "cached_tokens": 0,
+          "created_cache_tokens": 0,
+          "multimodal_tokens": null
+        },
+        "completion_tokens_details": {
+          "reasoning_tokens": 0
+        }
+      },
+      "content": "*   **To ensure accurate indemnity period and gross profit calculations:** The broker assesses whether the current coverage limits and the defined indemnity period (the length of time the business can recover) still align with the client’s actual financial exposure, accounting for inflation, supply chain vulnerabilities, and potential changes in revenue streams.\n*   **To update for operational and structural changes:** The review identifies any significant shifts in the business model, such as new locations, expanded product lines, or changes in key suppliers, ensuring that the policy reflects the current risk profile and excludes no longer relevant assets while including new critical dependencies.\n*   **To optimize policy terms and exclusions:** The broker evaluates whether existing exclusions (e.g., for cyber incidents, pandemics, or specific perils) are still appropriate and negotiates improved terms or additional coverages to address emerging risks, ensuring the client is neither underinsured nor paying for unnecessary protections."
+    },
+    {
+      "name": "code",
+      "seconds": 1.49,
+      "finish_reason": "stop",
+      "usage": {
+        "prompt_tokens": 31,
+        "total_tokens": 244,
+        "completion_tokens": 213,
+        "prompt_tokens_details": {
+          "cached_tokens": 0,
+          "created_cache_tokens": 0,
+          "multimodal_tokens": null
+        },
+        "completion_tokens_details": {
+          "reasoning_tokens": 0
+        }
+      },
+      "content": "```python\ndef fibonacci(n: int) -> int:\n    \"\"\"\n    Return the n-th Fibonacci number iteratively.\n\n    The Fibonacci sequence is defined as:\n        F(0) = 0\n        F(1) = 1\n        F(n) = F(n-1) + F(n-2) for n >= 2\n\n    Args:\n        n: A non-negative integer representing the position in the Fibonacci sequence.\n\n    Returns:\n        The n-th Fibonacci number.\n\n    Raises:\n        ValueError: If n is negative.\n    \"\"\"\n    if n < 0:\n        raise ValueError(\"n must be a non-negative integer\")\n    if n == 0:\n        return 0\n    if n == 1:\n        return 1\n\n    prev, curr = 0, 1\n    for _ in range(2, n + 1):\n        prev, curr = curr, prev + curr\n    return curr\n```"
+    },
+    {
+      "name": "json",
+      "seconds": 0.28,
+      "finish_reason": "stop",
+      "usage": {
+        "prompt_tokens": 43,
+        "total_tokens": 72,
+        "completion_tokens": 29,
+        "prompt_tokens_details": {
+          "cached_tokens": 0,
+          "created_cache_tokens": 0,
+          "multimodal_tokens": null
+        },
+        "completion_tokens_details": {
+          "reasoning_tokens": 0
+        }
+      },
+      "content": "{\"city\": \"Canberra\", \"population_millions\": 0.46, \"founded\": 1913}"
+    },
+    {
+      "name": "long_8k",
+      "seconds": 2.41,
+      "finish_reason": "stop",
+      "usage": {
+        "prompt_tokens": 11742,
+        "total_tokens": 11949,
+        "completion_tokens": 207,
+        "prompt_tokens_details": {
+          "cached_tokens": 0,
+          "created_cache_tokens": 10480,
+          "multimodal_tokens": null
+        },
+        "completion_tokens_details": {
+          "reasoning_tokens": 0
+        }
+      },
+      "content": "Based on Fact 287:\n*   **District:** 28\n*   **Crates:** 740\n*   **Item Code:** 72687\n\nHere are Facts 101 to 105 verbatim:\n\nFact 101: the warehouse in district 27 stores 316 crates of item code 99798.\nFact 102: the warehouse in district 28 stores 329 crates of item code 7714.\nFact 103: the warehouse in district 29 stores 342 crates of item code 15633.\nFact 104: the warehouse in district 30 stores 355 crates of item code 23552.\nFact 105: the warehouse in district 31 stores 368 crates of item code 31471."
+    }
+  ]
+}
